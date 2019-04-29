@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flkgateway/action"
 	"flkgateway/route"
 	"fmt"
@@ -29,6 +30,19 @@ func routingHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(data.Data)
 }
 func configHandler(w http.ResponseWriter, r *http.Request) {
+	req, err := http.NewRequest("GET", "http://192.168.20.187:8080/hello", nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	context, _ := context.WithTimeout(context.Background(), 2*time.Second)
+	req = req.WithContext(context)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		//TODO
+		fmt.Print("error", err)
+	}
+	defer resp.Body.Close()
+
 	fmt.Println("config...............")
 	w.Header().Set("Content-Type", "text/plain")
 	w.Write([]byte("config"))
@@ -64,24 +78,24 @@ func main() {
 		"a": processElement2,
 	}
 
-	notice1 := make(chan map[string]bool)
+	notice1 := make(chan map[string]bool, 1)
 	role1 := (&route.Role{Id: "role1", ParamMode: 0, ParamRegular: paramRegular1, ServerGroup: serverGroup1, Notice: notice1}).Init()
 	route.AddRole(role1)
 
-	notice2 := make(chan map[string]bool)
+	notice2 := make(chan map[string]bool, 1)
 	role2 := (&route.Role{Id: "role2", ParamMode: 0, ParamRegular: paramRegular2, ServerGroup: serverGroup2, Notice: notice2}).Init()
 	route.AddRole(role2)
 
 	http.HandleFunc("/", routingHandler)
 	http.HandleFunc("/config/", configHandler)
-	go func() {
-		time.Sleep(10 * time.Second)
-		notice1 <- map[string]bool{"192.168.20.187:8088": false}
-
-		time.Sleep(10 * time.Second)
-		notice1 <- map[string]bool{"192.168.20.187:8088": true}
-		fmt.Println("-----------")
-	}()
+	//go func() {
+	//	time.Sleep(10 * time.Second)
+	//	notice1 <- map[string]bool{"192.168.20.187:8088": false}
+	//
+	//	time.Sleep(10 * time.Second)
+	//	notice1 <- map[string]bool{"192.168.20.187:8088": true}
+	//	fmt.Println("-----------")
+	//}()
 	err := http.ListenAndServe(":"+strconv.Itoa(8080), nil)
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err.Error())
