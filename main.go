@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 func routingHandler(w http.ResponseWriter, r *http.Request) {
@@ -36,13 +37,51 @@ func configHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 
 	//添加路由规则
-	serverGroup := map[string]int{"192.168.20.187:8088": 3, "192.168.20.187:8089": 6}
+	serverGroup1 := map[string]int{"192.168.20.187:8088": 1}
+	serverGroup2 := map[string]int{"192.168.20.187:8089": 1}
 
-	role := (&route.Role{Id: "role1", ParamMode: 0, Param: map[string]string{"a": "1"}, ServerGroup: serverGroup}).Init()
-	route.AddRole(role)
+	processElement1 := route.ProcessElement{
+		Value:     "0",
+		Operation: "=",
+		Attach:    []string{"HASH", "MOD"},
+		S: map[string]interface{}{
+			"MOD": 2,
+		},
+	}
+	processElement2 := route.ProcessElement{
+		Value:     "1",
+		Operation: "=",
+		Attach:    []string{"HASH", "MOD"},
+		S: map[string]interface{}{
+			"MOD": 2,
+		},
+	}
+
+	paramRegular1 := map[string]route.ProcessElement{
+		"a": processElement1,
+	}
+	paramRegular2 := map[string]route.ProcessElement{
+		"a": processElement2,
+	}
+
+	notice1 := make(chan map[string]bool)
+	role1 := (&route.Role{Id: "role1", ParamMode: 0, ParamRegular: paramRegular1, ServerGroup: serverGroup1, Notice: notice1}).Init()
+	route.AddRole(role1)
+
+	notice2 := make(chan map[string]bool)
+	role2 := (&route.Role{Id: "role2", ParamMode: 0, ParamRegular: paramRegular2, ServerGroup: serverGroup2, Notice: notice2}).Init()
+	route.AddRole(role2)
 
 	http.HandleFunc("/", routingHandler)
 	http.HandleFunc("/config/", configHandler)
+	go func() {
+		time.Sleep(10 * time.Second)
+		notice1 <- map[string]bool{"192.168.20.187:8088": false}
+
+		time.Sleep(10 * time.Second)
+		notice1 <- map[string]bool{"192.168.20.187:8088": true}
+		fmt.Println("-----------")
+	}()
 	err := http.ListenAndServe(":"+strconv.Itoa(8080), nil)
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err.Error())
