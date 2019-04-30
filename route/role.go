@@ -1,28 +1,25 @@
 package route
 
 import (
-	"crypto/sha256"
+	"bytes"
 	"flkgateway/util"
 	"fmt"
 	"net/http"
-	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
 
 const (
-	LT       = "<"
-	GT       = ">"
-	EQUAL    = "="
-	NOTEQUAL = "!="
+	LT    = "<"
+	GT    = ">"
+	EQUAL = "="
 )
 
 const (
 	MOD  = "MOD"
 	HASH = "HASH"
 )
-
-var hash = sha256.New()
 
 type ProcessElement struct {
 	Value     string
@@ -31,10 +28,39 @@ type ProcessElement struct {
 	S         map[string]interface{}
 }
 
+//路由参数的签名，保证参数拦截不重复
+//针对附加操作数S 的value只判定int、string和[]string类型，其余默认值为"1"
+func (pe ProcessElement) Signature() string {
+	var buffer bytes.Buffer
+	buffer.WriteString(pe.Value)
+	buffer.WriteString(pe.Operation)
+	for _, v := range pe.Attach {
+		buffer.WriteString(v)
+		var s string
+		if any, ok := pe.S[v]; ok {
+			//
+			switch v := any.(type) {
+			case int:
+				s = strconv.Itoa(v)
+			case string:
+				s = v
+			case []string:
+				for _, _v := range v {
+					s += _v
+				}
+			default:
+				s = "1"
+			}
+			buffer.WriteString(s)
+		}
+	}
+	return buffer.String()
+}
+
 type Role struct {
 	Id string //规则id
 
-	UriRegular   string                    //uri匹配正则
+	UriRegular   string                    //uri匹配（前缀匹配），不能为空
 	ParamMode    int                       //匹配模式，0:and  1:or
 	ParamRegular map[string]ProcessElement //参数匹配
 
@@ -42,6 +68,42 @@ type Role struct {
 	Notice      chan map[string]bool //接收通知服务是否可用
 	serverMark  map[string]bool      //服务组标记，是否可用 {"192.168.20.186:8088":true}
 	f           func() string        //获取下一个匹配服务组
+}
+
+func (role Role) UriLabel() string {
+	if len(role.UriRegular) < 1 {
+		return ""
+	}
+	return role.UriRegular
+}
+
+func (role Role) ParamLabel() string {
+	if len(role.ParamRegular) < 1 {
+		return ""
+	}
+	var buffer bytes.Buffer
+	arr := make([]string, len(role.ParamRegular))
+	i := 0
+	for k, _ := range role.ParamRegular {
+		arr[i] = k
+	}
+	sort.Strings(arr)
+	for _, v := range arr {
+		buffer.WriteString(v)
+		buffer.WriteString(role.ParamRegular[v].Signature())
+	}
+	return buffer.String()
+}
+
+// 计算路由规则的指纹，去重
+func (role Role) Fingerprint() string {
+	var buffer bytes.Buffer
+	buffer.WriteString(role.UriRegular)
+	buffer.WriteString(strconv.Itoa(role.ParamMode))
+	buffer.WriteString(role.ParamLabel())
+
+	fingerprint := buffer.String()
+	return util.MD5(fingerprint)
 }
 
 func (role *Role) Init() *Role {
@@ -156,16 +218,20 @@ func (role Role) Match(req *http.Request) (string, bool) {
 	if len(role.UriRegular) > 0 {
 		// uri匹配
 		total++
-		if ok, _ := regexp.Match(role.UriRegular, []byte(routingKey)); ok {
+		if strings.HasPrefix(routingKey, role.UriRegular) {
 			score++
 		}
+		/*if ok, _ := regexp.Match(role.UriRegular, []byte(routingKey)); ok {
+			score++
+		}*/
 	}
 
 	if len(role.ParamRegular) > 0 && len(req.Form) > 0 {
 		// 参数匹配
-		total++
+
 		switch role.ParamMode {
 		case 0:
+			total += len(role.ParamRegular)
 			//and匹配
 			hits := 0
 			for k, v := range role.ParamRegular {
@@ -178,6 +244,7 @@ func (role Role) Match(req *http.Request) (string, bool) {
 			}
 			break
 		case 1:
+			total++
 			//or匹配
 			for k, v := range role.ParamRegular {
 				if hitJudge(v.Value, req.Form.Get(k), v.Operation, v.Attach, v.S) {
@@ -194,6 +261,7 @@ func (role Role) Match(req *http.Request) (string, bool) {
 		return "", false
 	}
 	if role.f == nil {
+		fmt.Println("role:", role.Id, " f() is null")
 		return "", false
 	}
 
@@ -244,10 +312,6 @@ func hitJudge(target, original, operation string, attach []string, s map[string]
 			return true
 		}
 		break
-	case NOTEQUAL:
-		if strings.Compare(tmp, target) != 0 {
-			return true
-		}
 	default:
 		panic("no operation model.")
 	}

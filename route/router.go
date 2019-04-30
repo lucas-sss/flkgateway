@@ -1,19 +1,58 @@
 package route
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
+)
+
+var (
+	staticRouter       = Router{make(map[string]*Role)}
+	uriLabel           = make(map[string]string) //key(roleId):value(uri)
+	paramLabel         = make(map[string]string) //key(roleId):value(param)
+	fingerprintLibrary = make(map[string]string) // key(roleId):value(fingerprint)
 )
 
 type Router struct {
 	roles map[string]*Role
 }
 
-var staticRouter = Router{make(map[string]*Role)}
-
+//添加路由规则
 func AddRole(role *Role) bool {
+
+	if len(role.UriRegular) == 0 {
+		return false
+	}
+
+	pl := role.ParamLabel()
+	if len(role.ParamRegular) != 0 {
+		//有参数，校验规则是否相同
+		for k, _ := range paramLabel {
+			if strings.Contains(k, pl) || strings.Contains(pl, k) {
+				return false
+			}
+		}
+	} else {
+		//没有参数规则，需校验uri是否有重叠
+		for _, v := range uriLabel {
+			if strings.HasPrefix(v, role.UriRegular) || strings.HasPrefix(role.UriRegular, v) {
+				return false
+			}
+		}
+	}
+
+	fp := role.Fingerprint()
+	for _, v := range fingerprintLibrary {
+		if strings.Compare(v, fp) == 0 {
+			return false
+		}
+	}
 	staticRouter.roles[role.Id] = role
+	uriLabel[role.Id] = role.UriRegular
+	if len(role.ParamRegular) != 0 {
+		paramLabel[role.Id] = pl
+	}
 	return true
 }
 
@@ -23,11 +62,13 @@ func Distribute(r *http.Request) (*http.Request, bool) {
 	for _, role := range staticRouter.roles {
 		if hostname, def := role.Match(r); def {
 			url = hostname
+			fmt.Println("roleId:", role.Id, "匹配url:", url)
 			break
 		}
 	}
 
 	if len(url) < 1 {
+		//从所有的服务中默认获取一个
 		url = "http://" + "192.168.20.187:8090" + r.URL.String()
 	}
 
