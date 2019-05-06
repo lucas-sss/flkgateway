@@ -106,12 +106,16 @@ func (role Role) Fingerprint() string {
 	return util.MD5(fingerprint)
 }
 
-func (role *Role) Init() *Role {
-	role.serverMark = make(map[string]bool)
-	for k, _ := range role.ServerGroup {
-		role.serverMark[k] = true
+func (role Role) Init() *Role {
+	if len(role.ServerGroup) == 0 {
+		panic("Role init error: ServerGroup is nil")
 	}
-
+	rPt := new(Role)
+	*rPt = role
+	rPt.serverMark = make(map[string]bool)
+	for k, _ := range role.ServerGroup {
+		rPt.serverMark[k] = true
+	}
 	//已有server不可用
 	/*badServer := []string{}
 	for _, v := range badServer {
@@ -143,9 +147,9 @@ func (role *Role) Init() *Role {
 				createServerGenerator(r)
 			}
 		}
-	}(role)
-	createServerGenerator(role)
-	return role
+	}(rPt)
+	createServerGenerator(rPt)
+	return rPt
 }
 
 func createServerGenerator(role *Role) {
@@ -278,7 +282,12 @@ func hitJudge(target, original, operation string, attach []string, s map[string]
 				if err != nil {
 					panic("ERROR: Mold operation of attach, original param is not number")
 				}
-				n = n % v.(int)
+				safeInt, err := util.SafeInt(v)
+				if err != nil {
+					//
+					panic("ERROR: Mold operation of attach, mod param is not number")
+				}
+				n = n % safeInt
 				tmp = strconv.Itoa(n)
 				break
 			}

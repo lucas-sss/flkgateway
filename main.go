@@ -1,15 +1,16 @@
 package main
 
 import (
-	"context"
-	"flkgateway/action"
 	"flkgateway/route"
 	"flkgateway/sniffing"
+	"flkgateway/transport"
 	"fmt"
+	"github.com/BurntSushi/toml"
 	"log"
 	"net/http"
+	"runtime/debug"
 	"strconv"
-	"time"
+	"strings"
 )
 
 func routingHandler(w http.ResponseWriter, r *http.Request) {
@@ -24,7 +25,7 @@ func routingHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	//3、发送请求
-	data, err := action.Do(req)
+	data, err := transport.Do(req)
 	if err != nil {
 		// handle error
 	}
@@ -36,7 +37,40 @@ func routingHandler(w http.ResponseWriter, r *http.Request) {
 	//fmt.Println("time consuming:", stop-start)
 }
 func configHandler(w http.ResponseWriter, r *http.Request) {
-	req, err := http.NewRequest("GET", "http://192.168.20.187:8080/hello", nil)
+	reqURI := r.RequestURI
+	fmt.Println("reqURI:", reqURI)
+	rawQuery := r.URL.Path
+	s := strings.Split(rawQuery, "/")
+
+	path := strings.Replace(rawQuery, "/config/", "", -1)
+	fmt.Println("path:", path)
+
+	context := ""
+
+	switch {
+	case path == "":
+		context = "index.html"
+		//http.Redirect(w, r, "/config/list", 302)
+		break
+	case path == "list" || path == "list/":
+		context = "list"
+		break
+	case path == "add" || path == "add/":
+		context = "add"
+		break
+	case path == "update" || path == "update/":
+		context = "update"
+		break
+	default:
+		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+		return
+	}
+	fmt.Println("rawQuery:", s[2])
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte(context))
+
+	/*req, err := http.NewRequest("GET", "http://192.168.20.187:8080/hello", nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -51,57 +85,44 @@ func configHandler(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println("config...............")
 	w.Header().Set("Content-Type", "text/plain")
-	w.Write([]byte("config"))
+	w.Write([]byte("config"))*/
+}
+
+func safeHandler(fn http.HandlerFunc) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		defer func() {
+			if e := recover(); e != nil {
+				log.Printf("WARNING: panic in %v - %v", fn, e)
+				log.Println(string(debug.Stack()))
+			}
+		}()
+		fn(writer, request)
+	}
+}
+
+type Config struct {
+	AllServer map[string]string
+	Roles     []route.Role
 }
 
 func main() {
 
-	//添加路由规则
-	serverGroup1 := map[string]int{"192.168.20.187:8088": 1}
-	serverGroup2 := map[string]int{"192.168.20.187:8089": 1}
-	serverGroup3 := map[string]int{"192.168.20.187:8086": 3, "192.168.20.187:8087": 1}
-
-	processElement1 := route.ProcessElement{
-		Value:     "0",
-		Operation: "=",
-		Attach:    []string{"HASH", "MOD"},
-		S: map[string]interface{}{
-			"MOD": 2,
-		},
-	}
-	processElement2 := route.ProcessElement{
-		Value:     "1",
-		Operation: "=",
-		Attach:    []string{"HASH", "MOD"},
-		S: map[string]interface{}{
-			"MOD": 2,
-		},
+	var config Config
+	if _, err := toml.DecodeFile("./conf.toml", &config); err != nil {
+		fmt.Println(err)
+		return
 	}
 
-	paramRegular1 := map[string]route.ProcessElement{
-		"a": processElement1,
+	for _, v := range config.Roles {
+		role := v.Init()
+		notice := make(chan map[string]bool, 1)
+		role.Notice = notice
+		b := route.AddRole(role)
+		fmt.Println(v.Id, "添加结果: ", b)
 	}
-	paramRegular2 := map[string]route.ProcessElement{
-		"a": processElement2,
-	}
-	var b bool
-	notice1 := make(chan map[string]bool, 1)
-	role1 := (&route.Role{Id: "role1", UriRegular: "/hello/a", ParamMode: 0, ParamRegular: paramRegular1, ServerGroup: serverGroup1, Notice: notice1}).Init()
-	b = route.AddRole(role1)
-	//fmt.Println("role添加结果", b)
 
-	notice2 := make(chan map[string]bool, 1)
-	role2 := (&route.Role{Id: "role2", UriRegular: "/hello/a", ParamMode: 0, ParamRegular: paramRegular2, ServerGroup: serverGroup2, Notice: notice2}).Init()
-	b = route.AddRole(role2)
-	//fmt.Println("role添加结果", b)
-
-	notice3 := make(chan map[string]bool, 1)
-	role3 := (&route.Role{Id: "role3", UriRegular: "/hello/c", ServerGroup: serverGroup3, Notice: notice3}).Init()
-	b = route.AddRole(role3)
-	//fmt.Println("role添加结果", b)
-
-	http.HandleFunc("/", routingHandler)
-	http.HandleFunc("/config/", configHandler)
+	http.HandleFunc("/", safeHandler(routingHandler))
+	http.HandleFunc("/config/", safeHandler(configHandler))
 	//go func() {
 	//	time.Sleep(10 * time.Second)
 	//	notice1 <- map[string]bool{"192.168.20.187:8088": false}
@@ -112,7 +133,20 @@ func main() {
 	//}()
 
 	sniffing.HealthCheck()
-	err := http.ListenAndServe(":"+strconv.Itoa(8080), nil)
+
+	go func() {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/config/", safeHandler(configHandler))
+		err := http.ListenAndServe(":"+strconv.Itoa(8888), mux)
+		if err != nil {
+			log.Fatal("ListenAndServe: ", err.Error())
+		}
+	}()
+
+	//err := http.ListenAndServe(":"+strconv.Itoa(8080), nil)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", safeHandler(routingHandler))
+	err := http.ListenAndServe(":"+strconv.Itoa(8080), mux)
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err.Error())
 	}

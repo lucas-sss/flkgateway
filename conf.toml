@@ -1,0 +1,36 @@
+
+[AllServer]
+    "192.168.20.187:8086" = "/health"
+    "192.168.20.187:8087" = "/health"
+    "192.168.20.187:8088" = "/health"
+    "192.168.20.187:8089" = "/health"
+    "192.168.20.187:8090" = "/health"
+
+
+[[Roles]]
+    "Id" = "role1"
+    "UriRegular" = "/hello/a"
+    "ParamMode" = 0
+    [Roles.ParamRegular.a]
+        "Value" = "0"
+        "Operation" = "="
+        "Attach" = ["HASH","MOD"]
+        [Roles.ParamRegular.a.S]
+            "MOD" = 2
+    [Roles.ServerGroup]
+        "192.168.20.187:8086" = 1
+        "192.168.20.187:8087" = 1
+
+[[Roles]]
+    "Id" = "role2"
+    "UriRegular" = "/hello/a"
+    "ParamMode" = 0
+    [Roles.ParamRegular.a]
+        "Value" = "1"
+        "Operation" = "="
+        "Attach" = ["HASH","MOD"]
+        [Roles.ParamRegular.a.S]
+            "MOD" = 2
+    [Roles.ServerGroup]
+        "192.168.20.187:8088" = 1
+        "192.168.20.187:8089" = 2

@@ -9,8 +9,8 @@ import (
 )
 
 var (
-	badServer   = make(map[string]time.Time) //hostname:time
-	allServer   = make(map[string]string)    //hostname:url
+	BadServer   = make(map[string]time.Time) //hostname:time
+	AllServer   = make(map[string]string)    //hostname:url
 	noticeGroup = make([]chan map[string]bool, 0, 1)
 )
 
@@ -26,7 +26,7 @@ func HealthCheck() {
 
 		for {
 			var noticeMap = make(map[string]bool)
-			for k, v := range allServer {
+			for k, v := range AllServer {
 				url := "http://" + k + v
 				req, err := http.NewRequest("GET", url, nil)
 				if err != nil {
@@ -40,20 +40,20 @@ func HealthCheck() {
 						time.AfterFunc(2*time.Second, func() {
 							resp, err := http.DefaultClient.Do(reqTimeout)
 							if err != nil {
-								badServer[k] = time.Now()
+								BadServer[k] = time.Now()
 							}
 							resp.Body.Close()
 						})
 					}()*/
 					//TODO warning the server seems to be not available
 					noticeMap[k] = false
-					badServer[k] = time.Now()
+					BadServer[k] = time.Now()
 					continue
 				}
 				resp.Body.Close()
 
-				if _, ok := badServer[k]; ok {
-					delete(badServer, k)
+				if _, ok := BadServer[k]; ok {
+					delete(BadServer, k)
 					noticeMap[k] = true
 				}
 			}
