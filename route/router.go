@@ -12,6 +12,7 @@ var (
 	uriLabel           = make(map[string]string) //key(roleId):value(uri)
 	paramLabel         = make(map[string]string) //key(roleId):value(param)
 	fingerprintLibrary = make(map[string]string) // key(roleId):value(fingerprint)
+	DefaultF           func() string
 )
 
 type Router struct {
@@ -62,14 +63,15 @@ func Distribute(r *http.Request) (*http.Request, bool) {
 	for _, role := range staticRouter.roles {
 		if hostname, def := role.Match(r); def {
 			url = hostname
-			fmt.Println("roleId:", role.Id, "匹配url:", url)
+			fmt.Printf("URL:%s 命中:%s target:%s\n", r.RequestURI, role.Id, url)
 			break
 		}
 	}
 
 	if len(url) < 1 {
 		//从所有的服务中默认获取一个
-		url = "http://" + "192.168.20.187:8090" + r.URL.String()
+		url = "http://" + DefaultF() + r.URL.String()
+		fmt.Printf("请求%s 匹配默认服务组:%s\n", r.RequestURI, url)
 	}
 
 	var body io.Reader

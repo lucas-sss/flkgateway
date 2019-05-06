@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"hash/crc32"
+	"os"
 )
 
 func HashCode(s string) int {
@@ -28,6 +29,11 @@ func MD5(s string) string {
 	h := md5.New()
 	h.Write([]byte(s))
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+func IsExist(f string) bool {
+	_, err := os.Stat(f)
+	return err == nil || os.IsExist(err)
 }
 
 func SafeInt(i interface{}) (int, error) {

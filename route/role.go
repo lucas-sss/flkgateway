@@ -152,12 +152,32 @@ func (role Role) Init() *Role {
 	return rPt
 }
 
-func createServerGenerator(role *Role) {
-	var i, cw, gcd = -1, 0, 1 //i表示上一次选择的服务器, cw表示当前调度的权值, gcd当前所有权重的最大公约数
-	if len(role.ServerGroup) < 1 {
-		//
-		return
+func AccessGroup(i, cw, gcd int, sg map[int]map[string]interface{}) func() string {
+
+	return func() string {
+		for {
+			i = (i + 1) % len(sg)
+			if i == 0 {
+				cw = cw - gcd
+				if cw <= 0 {
+					cw = getMaxWeight(sg)
+					if cw == 0 {
+						return ""
+					}
+				}
+			}
+			if weight, _ := sg[i]["weight"].(int); weight >= cw {
+				return sg[i]["hostname"].(string)
+			}
+		}
 	}
+}
+
+func createServerGenerator(role *Role) {
+	if len(role.ServerGroup) < 1 {
+		panic(role.Id + " no server group")
+	}
+	i, cw, gcd := -1, 0, 1 //i表示上一次选择的服务器, cw表示当前调度的权值, gcd当前所有权重的最大公约数
 	tmpWeight, index := 0, 0
 	availableServer := make(map[int]map[string]interface{})
 	for k, v := range role.ServerGroup {
@@ -173,12 +193,10 @@ func createServerGenerator(role *Role) {
 		gcd = util.GCD(tmpWeight, v)
 	}
 	if len(availableServer) == 0 {
-		//TODO 无可用服务
-		role.f = nil
-		return
+		panic(role.Id + " no available server")
 	}
-
-	role.f = func() string {
+	role.f = AccessGroup(i, cw, gcd, availableServer)
+	/*role.f = func() string {
 		for {
 			i = (i + 1) % len(availableServer)
 			if i == 0 {
@@ -195,7 +213,7 @@ func createServerGenerator(role *Role) {
 				return availableServer[i]["hostname"].(string)
 			}
 		}
-	}
+	}*/
 }
 
 func getMaxWeight(servers map[int]map[string]interface{}) int {
